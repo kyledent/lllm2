@@ -82,7 +82,7 @@ $('features').addEventListener('click',e=>{
  if(b.dataset.featureValue!==undefined){control.value=b.dataset.featureValue;edited('speculation');}
  control.scrollIntoView({block:'center'});control.focus();
 });
-let token='', discovered={}, combinations=[], results=[], lastResults='', statusState={}, loadedDefaults=null;
+let discovered={}, combinations=[], results=[], lastResults='', statusState={}, loadedDefaults=null;
 let view='launch', drafts={launch:null,experiments:null}, connected=false, resolving=true, selectionSequence=0, validationSequence=0;
 let validationSnapshot='', validationError='', actionError='', selectionNote='', pendingAction=false, pollPending=false, scanPending=false;
 let savedExists=false, engineOverride=false, editTimer=null, lastDownloads='', startAttempt=null, discoveredOnce=false, queuedView=null;
@@ -128,7 +128,7 @@ function slotNote(){
  benchmarkCost();
 }
 function message(s,error=false){$('message').textContent=s;$('message').style.display='block';$('message').className=error?'error':'';}
-async function api(path,data){const r=await fetch(path,{signal:AbortSignal.timeout(path==='/api/start'?15000:path.startsWith('/api/status')?10000:180000),...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-LLLM2-Token':token},body:JSON.stringify(data)})});const d=await r.json();if(!r.ok)throw Error(d.error||r.statusText);return d;}
+async function api(path,data){const r=await fetch(path,{signal:AbortSignal.timeout(path==='/api/start'?15000:path.startsWith('/api/status')?10000:180000),...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})});if(r.status===401){location.reload();throw Error('The panel session ended. Open the link from lllm2 panel-url.');}const d=await r.json();if(!r.ok)throw Error(d.error||r.statusText);return d;}
 async function attempt(fn){try{await fn();}catch(e){message(e.message,true);}}
 let resultSort={key:'started',direction:'descending'}, resultRequest=0;
 let resultDeletion=null,resultDeleteBusy=false;
@@ -744,7 +744,7 @@ async function poll(){
  if(pollPending)return;
  pollPending=true;
  try{
-  const q=selection(),s=await api('/api/status?'+new URLSearchParams(q));const previous=statusState;statusState=s;token=s.token;connected=true;
+  const q=selection(),s=await api('/api/status?'+new URLSearchParams(q));const previous=statusState;statusState=s;connected=true;
   if(previous.engine?.phase!==s.engine.phase||previous.job?.status!==s.job.status){
    if(s.engine.phase==='idle stopped'&&previous.engine?.phase&&previous.engine.phase!=='idle stopped')message('The remote model stopped after its idle timeout, so it no longer bills.');
    if(remoteBackend(q.backend)&&previous.engine)refreshRemote();

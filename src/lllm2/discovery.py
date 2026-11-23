@@ -312,9 +312,15 @@ def supported_architectures(binary):
     return frozenset(names)
 
 
-def engines(refresh=True):
-    if refresh:
-        _probe.cache_clear()
+def engine_paths():
+    """Return the resolved engine binaries the owner configured.
+
+    These are the ``llama-server`` files under ``LLLM2_ENGINE_ROOTS`` (a root
+    may itself be a binary) and ``llama-server`` on ``PATH``. Nothing is run.
+
+    Returns:
+        A set of resolved paths.
+    """
     paths = set()
     for root in config.ENGINE_ROOTS:
         if root.is_file():
@@ -327,7 +333,16 @@ def engines(refresh=True):
             )
     if shutil.which("llama-server"):
         paths.add(Path(shutil.which("llama-server")).resolve())
-    return [{k: v for k, v in probe(p).items() if k != "help"} for p in sorted(paths)]
+    return paths
+
+
+def engines(refresh=True):
+    if refresh:
+        _probe.cache_clear()
+    return [
+        {k: v for k, v in probe(p).items() if k != "help"}
+        for p in sorted(engine_paths())
+    ]
 
 
 def batch_defaults(help_text):

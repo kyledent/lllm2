@@ -19,8 +19,9 @@ lllm2
 
 The engine is downloaded from the matching lllm2 release, with CUDA runtime
 libraries included. No host compiler or CUDA toolkit is needed. Existing builds
-can also be discovered. Open
-<http://127.0.0.1:8082>, download a model and click **Start**. The model API
+can also be discovered. Open the `http://127.0.0.1:8082/?token=...` link the
+panel prints (`lllm2 panel-url` prints it again), download a model and click
+**Start**. The model API
 listens at `http://127.0.0.1:1920/v1`.
 
 <!-- README only content. Anything below this line won't be included in index.md -->

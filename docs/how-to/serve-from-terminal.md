@@ -28,7 +28,8 @@ lllm2 service install
 This installs `lllm2-panel.service` under
 `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user`, enables it for your user,
 and starts it at `http://127.0.0.1:8082`. No sudo is used. It starts the panel;
-choose and start a model in the panel as usual.
+run `lllm2 panel-url` for its session link, then choose and start a model in
+the panel as usual.
 
 Use `--host` and `--port` to change the listener, or `--no-start` to install
 and enable without starting or restarting it. Reinstalling updates the managed

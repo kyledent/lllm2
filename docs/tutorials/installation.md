@@ -29,7 +29,9 @@ lllm2 engines install cuda
 lllm2
 ```
 
-Open <http://127.0.0.1:8082>. Keep the panel running.
+Open the link the panel prints, `http://127.0.0.1:8082/?token=...`. Keep the
+panel running. The link sets a session cookie in that browser and changes each
+time the panel starts; `lllm2 panel-url` prints it again.
 
 When a newer lllm2 release is published, the panel shows a banner with the
 commands to upgrade: `uv tool upgrade lllm2`, then `lllm2 engines install cuda`

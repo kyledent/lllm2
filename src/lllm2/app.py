@@ -1,6 +1,7 @@
 import argparse
 import fcntl
 import json
+import os
 import secrets
 import signal
 import socket
@@ -10,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, config, downloads
+from . import __version__, config, downloads, panel_auth
 from .backends import create_engine, engine_kind, engine_serves
 from .bench import WORKLOADS, Bench
 from .catalogue import Catalogue, Finder, local_paths, suitability
@@ -190,7 +191,6 @@ class App:
             The JSON-serialisable status.
         """
         return {
-            "token": self.token,
             "version": __version__,
             "update": self.update_check.notice(),
             "engine": self.engine.state(),
@@ -989,16 +989,43 @@ def unconfirmed_reason(row):
     )
 
 
-def serve(host="127.0.0.1", port=8082):
-    config.STATE_DIR.mkdir(parents=True, exist_ok=True)
-    lock = (config.STATE_DIR / "panel.lock").open("w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as error:
-        lock.close()
-        raise RuntimeError("Another lllm2 panel owns this state directory.") from error
-    app = App()
-    downloads.configure(app.store)
+LOCKED_PAGE = b"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>lllm2 panel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem">
+<h1>Open the panel with its session link</h1>
+<p>This panel accepts only browsers that opened its session link, so other
+programs and accounts on this machine cannot control it.</p>
+<p>On the panel's machine, run <code>lllm2 panel-url</code> and open the link it
+prints. The link changes each time the panel starts.</p>
+</body></html>
+"""
+
+
+def make_server(host="127.0.0.1", port=8082, app=None, token=None):
+    """Build the panel's HTTP server without starting it.
+
+    Every ``/api`` request must carry the session secret, in the
+    ``X-LLLM2-Token`` header or the session cookie. ``GET /?token=<secret>``
+    sets that cookie and redirects to the panel. POST requests must also come
+    from the panel's own origin when a browser sends one, and may name only
+    configured engines and allowed chat templates.
+
+    Args:
+        host: The address to bind.
+        port: The port to bind; 0 picks a free port.
+        app: The panel application, or None to create one.
+        token: The session secret, or None to generate one.
+
+    Returns:
+        A ``ThreadingHTTPServer`` whose ``app`` and ``token`` attributes hold
+        the application and secret.
+    """
+    app = App() if app is None else app
+    if token is not None:
+        app.token = token
+    server = ThreadingHTTPServer((host, port), BaseHTTPRequestHandler)
+    port = server.server_address[1]
     hostnames = {
         "127.0.0.1",
         "localhost",
@@ -1006,15 +1033,19 @@ def serve(host="127.0.0.1", port=8082):
         socket.getfqdn().lower(),
     }
     allowed_hosts = {f"{name}:{port}" for name in hostnames}
+    cookie = panel_auth.cookie_name(port)
 
     class Handler(BaseHTTPRequestHandler):
-        def send(self, status, body, kind="application/json"):
+        def send(self, status, body, kind="application/json", headers=()):
             raw = json.dumps(body).encode() if kind == "application/json" else body
             self.send_response(status)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(raw)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            for name, value in headers:
+                self.send_header(name, value)
             self.end_headers()
             try:
                 self.wfile.write(raw)
@@ -1032,41 +1063,68 @@ def serve(host="127.0.0.1", port=8082):
                 return False
             return True
 
+        def authorized(self):
+            """Return whether the request presents the session secret."""
+            return panel_auth.same_secret(
+                self.headers.get(panel_auth.TOKEN_HEADER), app.token
+            ) or panel_auth.same_secret(
+                panel_auth.cookie_token(self.headers.get("Cookie"), port), app.token
+            )
+
+        def refuse(self):
+            self.send(
+                401,
+                {
+                    "error": "This panel needs its session link. Run `lllm2 panel-url` and open the link it prints."
+                },
+            )
+
+        def static(self, name, kind):
+            self.send(
+                200,
+                Path(__file__).with_name("static").joinpath(name).read_bytes(),
+                kind,
+            )
+
         def do_GET(self):
             if not self.valid_host():
                 return
-            path = urlparse(self.path).path
+            url = urlparse(self.path)
+            path = url.path
             if path == "/":
-                self.send(
-                    200,
-                    Path(__file__)
-                    .with_name("static")
-                    .joinpath("index.html")
-                    .read_bytes(),
-                    "text/html; charset=utf-8",
-                )
+                offered = parse_qs(url.query).get("token", [None])[-1]
+                if offered is not None:
+                    if not panel_auth.same_secret(offered, app.token):
+                        self.send(401, LOCKED_PAGE, "text/html; charset=utf-8")
+                        return
+                    # Exchange the link for a cookie, then drop the secret
+                    # from the address bar and history.
+                    self.send(
+                        303,
+                        b"",
+                        "text/plain",
+                        headers=[
+                            (
+                                "Set-Cookie",
+                                f"{cookie}={app.token}; Path=/; HttpOnly; SameSite=Strict",
+                            ),
+                            ("Location", "/"),
+                        ],
+                    )
+                elif self.authorized():
+                    self.static("index.html", "text/html; charset=utf-8")
+                else:
+                    self.send(401, LOCKED_PAGE, "text/html; charset=utf-8")
             elif path == "/static/panel.js":
-                self.send(
-                    200,
-                    Path(__file__)
-                    .with_name("static")
-                    .joinpath("panel.js")
-                    .read_bytes(),
-                    "text/javascript; charset=utf-8",
-                )
+                self.static("panel.js", "text/javascript; charset=utf-8")
             elif path == "/static/panel.css":
-                self.send(
-                    200,
-                    Path(__file__)
-                    .with_name("static")
-                    .joinpath("panel.css")
-                    .read_bytes(),
-                    "text/css; charset=utf-8",
-                )
+                self.static("panel.css", "text/css; charset=utf-8")
+            elif not path.startswith("/api/"):
+                self.send(404, {"error": "Not found"})
+            elif not self.authorized():
+                self.refuse()
             elif path == "/api/status":
-                query = {
-                    k: v[-1] for k, v in parse_qs(urlparse(self.path).query).items()
-                }
+                query = {k: v[-1] for k, v in parse_qs(url.query).items()}
                 self.send(200, app.status(query))
             elif path in ["/api/results", "/api/results/export"]:
                 rows = app.store.list("summary" if path == "/api/results" else "result")
@@ -1077,8 +1135,11 @@ def serve(host="127.0.0.1", port=8082):
         def do_POST(self):
             if not self.valid_host():
                 return
+            if not self.authorized():
+                self.refuse()
+                return
             origin = self.headers.get("Origin")
-            if self.headers.get("X-LLLM2-Token") != app.token or (
+            if (
                 origin
                 and origin.lower() != f"http://{self.headers.get('Host', '').lower()}"
             ):
@@ -1089,6 +1150,7 @@ def serve(host="127.0.0.1", port=8082):
                 if not 0 < size <= 2_000_000:
                     raise ValueError("Invalid request size")
                 data = json.loads(self.rfile.read(size))
+                panel_auth.check_request_paths(data)
                 self.send(200, app.action(urlparse(self.path).path, data))
             except (ValueError, KeyError, TypeError, OSError, ProviderError) as e:
                 # ProviderError carries provider messages, such as missing
@@ -1102,21 +1164,49 @@ def serve(host="127.0.0.1", port=8082):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    server.RequestHandlerClass = Handler
+    server.app = app
+    server.token = app.token
+    return server
+
+
+def serve(host="127.0.0.1", port=8082):
+    config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    lock = (config.STATE_DIR / "panel.lock").open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        lock.close()
+        raise RuntimeError("Another lllm2 panel owns this state directory.") from error
+    app = App()
+    downloads.configure(app.store)
+    server = make_server(host, port, app)
+    port = server.server_address[1]
+    urls = panel_auth.panel_urls(host, port, app.token, socket.gethostname())
+    panel_auth.write_session(
+        {
+            "pid": os.getpid(),
+            "host": host,
+            "port": port,
+            "token": app.token,
+            "urls": urls,
+        }
+    )
 
     def shutdown(*_):
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
-    print(f"lllm2: http://127.0.0.1:{port}", flush=True)
+    print(f"lllm2: {urls[0]}", flush=True)
+    print(
+        "Open that link once per browser; run `lllm2 panel-url` to print it again.",
+        flush=True,
+    )
     if host != "127.0.0.1":
+        print(f"LAN panel: {urls[1]} (listening on {host})", flush=True)
         print(
-            f"LAN panel: http://{socket.gethostname() if host == '0.0.0.0' else host}:{port} (listening on {host})",
-            flush=True,
-        )
-        print(
-            "LAN access has no login or TLS: anyone who can reach this port can control the workbench. Use only on a trusted network.",
+            "LAN access has no TLS: the session link and cookie travel in clear text. Use only on a trusted network.",
             flush=True,
         )
     try:
@@ -1130,6 +1220,7 @@ def serve(host="127.0.0.1", port=8082):
             except Exception as e:
                 engine.log(f"Shutdown could not stop the engine: {e}")
         server.server_close()
+        panel_auth.remove_session(app.token)
         lock.close()
 
 
@@ -1139,7 +1230,7 @@ def main(argv=None):
     parser.add_argument(
         "--host",
         default="127.0.0.1",
-        help="IPv4 bind address (default: localhost; use 0.0.0.0 for trusted-LAN access without authentication or TLS)",
+        help="IPv4 bind address (default: localhost; use 0.0.0.0 for trusted-LAN access; the session link travels without TLS)",
     )
     args = parser.parse_args(argv)
     serve(args.host, args.port)

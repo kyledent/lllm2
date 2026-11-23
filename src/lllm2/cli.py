@@ -34,6 +34,7 @@ from .engine_install import install, provenance
 from .gpu_tables import GPU_TABLES, gpu_type, gpu_types, pricing_caveat
 from .harness import run_harness
 from .launch import choose_launch, installed_models
+from .panel_auth import read_session
 from .remote import (
     PROVIDERS,
     CallRecords,
@@ -338,7 +339,7 @@ app = typer.Typer(
     no_args_is_help=False,
     context_settings={"help_option_names": ["-h", "--help"]},
     pretty_exceptions_enable=False,
-    epilog="Examples: lllm2 panel --port 8082; lllm2 models --json; "
+    epilog="Examples: lllm2 panel --port 8082; lllm2 panel-url; lllm2 models --json; "
     "lllm2 engines install cuda; lllm2 launch. "
     "Use COMMAND --help for command options.",
 )
@@ -408,6 +409,37 @@ def panel(host: Host = "127.0.0.1", port: Port = 8082) -> None:
     _serve(host, port)
 
 
+@app.command("panel-url")
+def panel_url(
+    token_only: Annotated[
+        bool,
+        typer.Option(
+            "--token", help="Print only the session secret, for an API client."
+        ),
+    ] = False,
+) -> None:
+    """Print the running panel's session link.
+
+    Open the link once in each browser; it sets a session cookie. API clients
+    send the secret in the X-LLLM2-Token header instead. The link changes each
+    time the panel starts.
+    """
+    try:
+        record = read_session()
+    except (OSError, ValueError):
+        typer.echo(
+            f"No running panel found for {config.STATE_DIR}. Start one with `lllm2 panel` "
+            "or `systemctl --user start lllm2-panel`.",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    if token_only:
+        typer.echo(record["token"])
+    else:
+        for url in record["urls"]:
+            typer.echo(url)
+
+
 @service_app.command("install")
 def install_panel_service(
     host: Host = "127.0.0.1",
@@ -430,6 +462,7 @@ def install_panel_service(
     typer.echo(f"Installed and enabled {path}")
     if start:
         typer.echo("Panel service started. Check: systemctl --user status lllm2-panel")
+        typer.echo("Open the panel with the link from: lllm2 panel-url")
     typer.echo("Logs: journalctl --user -u lllm2-panel -f")
 
 

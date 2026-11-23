@@ -22,7 +22,7 @@ client inside lllm2, but it does not put the `modal` command on your path.
 before it will run GPU functions. `lllm2 modal setup` deploys the lllm2 app once.
 See [Set up Modal](../how-to/serve-from-modal.md#set-up-modal) if either step
 complains. Then start the panel with `lllm2` and open
-<http://127.0.0.1:8082>.
+the `http://127.0.0.1:8082/?token=...` link it prints.
 
 ## 2. Choose the Modal backend
 

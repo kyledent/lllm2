@@ -12,8 +12,8 @@ nobody needs the model. Expect an hour or more of GPU time for a 27B model.
 
 If you do not have lllm2 yet, follow the
 [installation tutorial](../tutorials/installation.md). Before you continue,
-the panel should be open at <http://127.0.0.1:8082> and the model you want to
-tune should start from **Launch** at least once. The agent needs the panel
+the panel should be open (run `lllm2 panel-url` for its link) and the model
+you want to tune should start from **Launch** at least once. The agent needs the panel
 running; it does not matter whether the model is running.
 
 ## 2. Get a sandboxed agent that can reach the panel
@@ -52,21 +52,37 @@ environment. A plain `claude` launch relays only the model port again. This
 needs claude-sandbox with the port relay available to every agent (see its
 [egress jail how-to](https://diamondlightsource.github.io/claude-sandbox/how-to/network-egress-jail.html#reach-services-on-the-hosts-loopback)).
 
-Log in to the agent when prompted, then confirm it can see the panel by asking
-it to run:
+The panel API accepts only clients that present its session secret, and the
+agent cannot read it from inside the jail. On the host, outside the container,
+print it:
 
 ```bash
-curl -fsS http://127.0.0.1:8082/api/status | head -c 300
+lllm2 panel-url --token
+```
+
+It changes whenever the panel restarts. Treat it like a password: anyone who
+has it can start models, run experiments and delete downloads on your
+machine. It does not let the agent run programs of its choosing: the panel
+starts only engines under `LLLM2_ENGINE_ROOTS` or `llama-server` on `PATH`,
+and reads chat templates only from the models directory or lllm2's own
+templates.
+
+Log in to the agent when prompted, then confirm it can see the panel by asking
+it to run, with the secret in place of `<SECRET>`:
+
+```bash
+curl -fsS -H 'X-LLLM2-Token: <SECRET>' http://127.0.0.1:8082/api/status | head -c 300
 ```
 
 A JSON document with `"version"` and `"engine"` keys means the API is
-reachable. `Connection refused` means the panel is not running, the agent was
-started without the variable, or the installed claude-sandbox predates the
-relay for Claude and Codex.
+reachable. HTTP 401 means the secret is missing or stale. `Connection refused`
+means the panel is not running, the agent was started without the variable,
+or the installed claude-sandbox predates the relay for Claude and Codex.
 
 ## 3. Give the agent the tuning prompt
 
-Paste the prompt below into the agent, then replace `<MODEL-FILENAME-SUBSTRING>`
+Paste the prompt below into the agent, replace `<SECRET>` with the output of
+`lllm2 panel-url --token`, then replace `<MODEL-FILENAME-SUBSTRING>`
 in its first line with part of the filename of the checkpoint you want to
 tune, such as `Qwen3.8-27B`. `lllm2 models` prints the installed filenames. If
 the placeholder is left in, or the text matches no installed checkpoint, the
@@ -81,7 +97,7 @@ models from the "models" field of POST /api/discover and ask me which one to
 tune. Do not download a model.
 
 Drive the local panel API at exactly http://127.0.0.1:8082; there is no browser.
-Read GET /api/status first and send its "token" as X-LLLM2-Token on every POST.
+Send the header "X-LLLM2-Token: <SECRET>" on every request, GET and POST.
 Use GET /api/status, /api/results and /api/results/export, and POST
 /api/discover, /api/default/resolve, /api/capabilities, /api/benchmark and
 /api/cancel only. Do not download or delete anything, and do not save settings.

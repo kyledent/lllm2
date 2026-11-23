@@ -7,6 +7,7 @@ Run `lllm2 COMMAND --help` for all options.
 | `lllm2 --version` | Print the installed package version and exit. |
 | `lllm2 service install` | Install, enable and start the panel user service; accepts `--host`, `--port` and `--no-start`. |
 | `lllm2` or `lllm2 panel` | Start the panel; `--host` and `--port` control its listener. |
+| `lllm2 panel-url [--token]` | Print the running panel's session link, or with `--token` only the secret for API clients. |
 | `lllm2 models [--json]` | List installed GGUF checkpoints. |
 | `lllm2 engines list [--json]` | List discovered llama-server builds. |
 | `lllm2 engines install cuda` | Download this release’s pinned CUDA engine; accepts `--name` and `--force` (try CUDA 12 when driver checks fail). |

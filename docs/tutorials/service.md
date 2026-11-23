@@ -26,8 +26,8 @@ Look for **active (running)** in the status output. Press **q** to return to
 your shell if the output opens in a pager. If startup failed, use the log
 command in step 3 to see why.
 
-The installer enables and starts `lllm2-panel.service` for your user. Open
-<http://127.0.0.1:8082>, choose your model and click **Start**. The service starts
+The installer enables and starts `lllm2-panel.service` for your user. Run
+`lllm2 panel-url`, open the link it prints, choose your model and click **Start**. The service starts
 the panel; you still start the model yourself.
 
 On DLS machines, the `~/models` symlink to scratch from the installation

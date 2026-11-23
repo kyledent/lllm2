@@ -35,7 +35,8 @@ lllm2 engines install cuda
 lllm2
 ```
 
-Open <http://127.0.0.1:8082> (or your configured address), check the version in
+Open the panel with the new link from `lllm2 panel-url` (the session link
+changes when the panel restarts), check the version in
 the panel header, and start your model again. Models, saved settings
 and existing engines are preserved. Engine installation is a no-op when the
 required version is already installed.
